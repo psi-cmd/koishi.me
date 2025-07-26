@@ -1,0 +1,42 @@
+# .github/workflows/deploy.yml
+name: Build & Deploy
+on:
+  push:
+    branches: [ main ]
+
+jobs:
+  build-deploy:
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v4
+
+    - name: Setup Node
+      uses: actions/setup-node@v4
+      with:
+        node-version: 20
+
+    - run: npm ci
+    - run: npm run build
+
+    # 生成唯一版本号
+    - id: ts
+      run: echo "release=release_$(date +'%Y%m%d_%H%M%S')" >> $GITHUB_OUTPUT
+
+    # 配置 SSH
+    - name: Add deploy key
+      uses: webfactory/ssh-agent@v0.9.0
+      with:
+        ssh-private-key: ${{ secrets.DEPLOY_KEY }}
+
+    # rsync 到新目录
+    - name: Rsync release
+      run: |
+        rsync -az --delete dist/ \
+          deploy@your.server.com:/var/www/releases/${{ steps.ts.outputs.release }}/
+
+    # 原子切换软链
+    - name: Activate release via SSH
+      run: |
+        ssh deploy@your.server.com "\
+          ln -sfn /var/www/releases/${{ steps.ts.outputs.release }} /var/www/koishi.me && \
+          find /var/www/releases -maxdepth 1 -mindepth 1 -type d -printf '%P\n' | sort -r | tail -n +6 | xargs -I{} rm -rf /var/www/releases/{}"
